@@ -63,15 +63,20 @@ symbols:
     enabled: true
 
 notify:
-  smtp_host: "smtp.example.com"
+  smtp_host: "smtp.gmail.com"
   smtp_port: 587
-  smtp_user: ""
-  smtp_password: ""    # or from env: SMTP_PASSWORD
-  from: "bot@example.com"
+  from: ""             # Gmail address; from env: GMAIL_USER
   to: "trader@example.com"
 ```
 
-All sensitive values can be overridden via environment variables.
+Gmail credentials are provided exclusively via environment variables — do **not** store them in `config.yaml`:
+
+| Variable | Description |
+|---|---|
+| `GMAIL_USER` | Gmail address used to authenticate and send alerts |
+| `GMAIL_APP_PASSWORD` | Google App Password (not the account password) |
+
+All other sensitive values (`ALPACA_API_KEY`, `ALPACA_API_SECRET`) can also be overridden via environment variables.
 
 ---
 
