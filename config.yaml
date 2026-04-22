@@ -1,0 +1,26 @@
+alpaca:
+  api_key: ""          # override with ALPACA_API_KEY env var
+  api_secret: ""       # override with ALPACA_API_SECRET env var
+  base_url: "https://paper-api.alpaca.markets"
+
+trading:
+  max_dte: 2
+  run_on_startup: true
+  run_on_open: false
+  run_on_cron: ""
+
+symbols:
+  - ticker: PLUG
+    enabled: true
+  - ticker: IBIT
+    enabled: false
+  - ticker: USAR
+    enabled: false
+  - ticker: PATH
+    enabled: false
+
+notify:
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  from: ""             # override with GMAIL_USER env var
+  to: "enork789@gmail.com"
