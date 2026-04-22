@@ -1,10 +1,13 @@
 .PHONY: run build clean
 
+-include .env
+export
+
 run:
-	ALPACA_API_KEY=$(ALPACA_API_KEY) ALPACA_API_SECRET=$(ALPACA_API_SECRET) go run ./cmd/bot/
+	@go run ./cmd/bot/
 
 build:
-	go build -o bin/bot ./cmd/bot/
+	@go build -o bin/bot ./cmd/bot/
 
 clean:
-	rm -rf bin/
+	@rm -rf bin/
