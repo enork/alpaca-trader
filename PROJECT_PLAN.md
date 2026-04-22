@@ -55,12 +55,19 @@ alpaca:
 
 trading:
   max_dte: 2           # Look-ahead window in trading days for option expiry
+  run_on_startup: # If true, run cycle immediately on startup
+  run_on_open: # if true, run cycle on market open of every open trading day
+  run_on_cron: # run cycle on cron if provided, 
 
 symbols:
-  - ticker: AAPL
+  - ticker: PLUG
     enabled: true
-  - ticker: TSLA
-    enabled: true
+  - ticker: IBIT
+    enabled: false
+  - ticker: USAR
+    enabled: false
+  - ticker: PATH
+    enabled: false
 
 notify:
   smtp_host: "smtp.gmail.com"
@@ -83,6 +90,8 @@ All other sensitive values (`ALPACA_API_KEY`, `ALPACA_API_SECRET`) can also be o
 ## Trading Logic
 
 ### Startup Cycle
+
+Trading cycles run based on trading.run_on_* in config.yaml
 
 On each run (startup or scheduled), the bot:
 
@@ -122,11 +131,14 @@ Before placing any put order:
    `new_put_obligation = strike_price × 100`.
 3. Verify: `account_cash >= existing_put_exposure + new_put_obligation`.
 4. If the check fails → **do not place the trade** and send an email alert with:
-   - Symbol being skipped
-   - Current cash balance
-   - Total existing put exposure
-   - Required cash for the new put
-   - Shortfall amount
+   - Add symbol to a list of symbols being skipped
+5. If we skipped any enabled tickers due to not having sufficient cash:
+   - Send an email alert with:
+      * Symbols being skipped
+      * Current cash balance
+      * Total existing put exposure
+      * Required additional total cash to cover all puts
+      * Required additional per put to cover
 
 ---
 
