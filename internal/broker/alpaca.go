@@ -9,6 +9,7 @@ import (
 	"github.com/alpacahq/alpaca-trade-api-go/v3/alpaca"
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata"
 	"github.com/enork/alpaca-trader/internal/config"
+	"github.com/shopspring/decimal"
 )
 
 // Client wraps the Alpaca trading and market-data clients.
@@ -74,6 +75,25 @@ func (c *Client) GetLatestPrice(symbol string) (float64, error) {
 		return 0, fmt.Errorf("get latest trade %s: %w", symbol, err)
 	}
 	return trade.Price, nil
+}
+
+// PlaceOptionOrder submits a sell-to-open day limit order for an option contract.
+func (c *Client) PlaceOptionOrder(optionSymbol string, contracts int, limitPrice float64) (*alpaca.Order, error) {
+	qty := decimal.NewFromInt(int64(contracts))
+	price := decimal.NewFromFloat(limitPrice)
+	order, err := c.ac.PlaceOrder(alpaca.PlaceOrderRequest{
+		Symbol:         optionSymbol,
+		Qty:            &qty,
+		Side:           alpaca.Sell,
+		Type:           alpaca.Limit,
+		TimeInForce:    alpaca.Day,
+		LimitPrice:     &price,
+		PositionIntent: alpaca.SellToOpen,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("place option order %s: %w", optionSymbol, err)
+	}
+	return order, nil
 }
 
 // GetOptionChain returns snapshots (including bid/ask quotes) for all active option

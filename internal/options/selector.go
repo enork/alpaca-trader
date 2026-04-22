@@ -49,7 +49,7 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
 			continue
 		}
-		_, expiry, optType, strike, err := parseSymbol(sym)
+		_, expiry, optType, strike, err := ParseSymbol(sym)
 		if err != nil {
 			continue
 		}
@@ -103,7 +103,7 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
 			continue
 		}
-		_, expiry, optType, strike, err := parseSymbol(sym)
+		_, expiry, optType, strike, err := ParseSymbol(sym)
 		if err != nil {
 			continue
 		}
@@ -149,9 +149,9 @@ func addTradingDays(d civil.Date, n int) civil.Date {
 	return civil.DateOf(t)
 }
 
-// parseSymbol decodes an OCC option symbol (e.g. PLUG250117C00003000) into its components.
+// ParseSymbol decodes an OCC option symbol (e.g. PLUG250117C00003000) into its components.
 // Strike is returned in dollars (8-digit field: 5 integer digits + 3 decimal digits).
-func parseSymbol(sym string) (root string, expiry civil.Date, optType string, strike float64, err error) {
+func ParseSymbol(sym string) (root string, expiry civil.Date, optType string, strike float64, err error) {
 	i := 0
 	for i < len(sym) && !unicode.IsDigit(rune(sym[i])) {
 		i++
