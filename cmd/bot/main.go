@@ -6,6 +6,7 @@ import (
 
 	"github.com/enork/alpaca-trader/internal/broker"
 	"github.com/enork/alpaca-trader/internal/config"
+	"github.com/enork/alpaca-trader/internal/options"
 )
 
 func main() {
@@ -33,4 +34,28 @@ func main() {
 		"buying_power", acct.BuyingPower,
 		"status", acct.Status,
 	)
+
+	sel := options.New(bc)
+
+	for _, sym := range cfg.EnabledSymbols() {
+		price, err := bc.GetLatestPrice(sym.Ticker)
+		if err != nil {
+			log.Warn("skipping symbol: could not fetch price", "ticker", sym.Ticker, "error", err)
+			continue
+		}
+		log.Info("latest price", "ticker", sym.Ticker, "price", price)
+
+		put, err := sel.SelectPut(sym.Ticker, cfg.Trading.MaxDTE)
+		if err != nil {
+			log.Warn("no put selected", "ticker", sym.Ticker, "error", err)
+		} else {
+			log.Info("selected put",
+				"ticker", sym.Ticker,
+				"symbol", put.Symbol,
+				"strike", put.Strike,
+				"expiry", put.Expiry,
+				"bid", put.BidPrice,
+			)
+		}
+	}
 }
