@@ -1,11 +1,11 @@
 package trading
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/alpacahq/alpaca-trade-api-go/v3/alpaca"
 
+	"github.com/enork/alpaca-trader/internal/notify"
 	"github.com/enork/alpaca-trader/internal/options"
 )
 
@@ -87,29 +87,39 @@ func existingPutExposure(positions []alpaca.Position, orders []alpaca.Order) flo
 	return total
 }
 
-// logCashGuardSummary logs a structured summary when one or more puts were blocked.
-// Phase 4 will extend this to send an email alert.
-func (e *Engine) logCashGuardSummary(acct *alpaca.Account, positions []alpaca.Position, skips []cashGuardSkip) {
+// buildCashGuardAlert assembles the alert payload from skipped symbols and account state.
+func (e *Engine) buildCashGuardAlert(acct *alpaca.Account, positions []alpaca.Position, skips []cashGuardSkip) notify.CashGuardAlert {
 	cash, _ := acct.Cash.Float64()
 	exposure := existingPutExposure(positions, nil)
 
-	var totalRequired float64
+	var totalObligation float64
 	tickers := make([]string, 0, len(skips))
 	for _, s := range skips {
-		totalRequired += s.Obligation
+		totalObligation += s.Obligation
 		tickers = append(tickers, s.Ticker)
 	}
 
-	additionalNeeded := exposure + totalRequired - cash
+	additionalNeeded := exposure + totalObligation - cash
 	if additionalNeeded < 0 {
 		additionalNeeded = 0
 	}
 
+	return notify.CashGuardAlert{
+		SkippedTickers:   tickers,
+		Cash:             cash,
+		ExistingExposure: exposure,
+		AdditionalTotal:  additionalNeeded,
+		AdditionalPerPut: additionalNeeded / float64(len(skips)),
+	}
+}
+
+// logCashGuardSummary writes a structured log entry for a cash guard alert.
+func (e *Engine) logCashGuardSummary(a notify.CashGuardAlert) {
 	e.log.Warn("cash guard summary",
-		"skipped_tickers", tickers,
-		"cash", cash,
-		"existing_put_exposure", fmt.Sprintf("%.2f", exposure),
-		"additional_cash_needed_total", fmt.Sprintf("%.2f", additionalNeeded),
-		"additional_cash_needed_per_put", fmt.Sprintf("%.2f", additionalNeeded/float64(len(skips))),
+		"skipped_tickers", a.SkippedTickers,
+		"cash", a.Cash,
+		"existing_put_exposure", a.ExistingExposure,
+		"additional_cash_needed_total", a.AdditionalTotal,
+		"additional_cash_needed_per_put", a.AdditionalPerPut,
 	)
 }

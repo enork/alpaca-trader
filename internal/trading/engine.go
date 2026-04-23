@@ -8,20 +8,22 @@ import (
 
 	"github.com/enork/alpaca-trader/internal/broker"
 	"github.com/enork/alpaca-trader/internal/config"
+	"github.com/enork/alpaca-trader/internal/notify"
 	"github.com/enork/alpaca-trader/internal/options"
 )
 
 // Engine orchestrates the per-symbol trading cycle.
 type Engine struct {
-	cfg *config.Config
-	bc  *broker.Client
-	sel *options.Selector
-	log *slog.Logger
+	cfg      *config.Config
+	bc       *broker.Client
+	sel      *options.Selector
+	notifier *notify.Notifier
+	log      *slog.Logger
 }
 
-// New creates a trading Engine.
-func New(cfg *config.Config, bc *broker.Client, sel *options.Selector, log *slog.Logger) *Engine {
-	return &Engine{cfg: cfg, bc: bc, sel: sel, log: log}
+// New creates a trading Engine. notifier may be nil to disable email alerts.
+func New(cfg *config.Config, bc *broker.Client, sel *options.Selector, notifier *notify.Notifier, log *slog.Logger) *Engine {
+	return &Engine{cfg: cfg, bc: bc, sel: sel, notifier: notifier, log: log}
 }
 
 // Run executes one full trading cycle: fetch state, iterate enabled symbols, place orders.
@@ -71,8 +73,13 @@ func (e *Engine) Run() error {
 	}
 
 	if len(skips) > 0 {
-		e.logCashGuardSummary(acct, positions, skips)
-		// Phase 4: send email notification here.
+		alert := e.buildCashGuardAlert(acct, positions, skips)
+		e.logCashGuardSummary(alert)
+		if e.notifier != nil {
+			if err := e.notifier.SendCashGuardAlert(alert); err != nil {
+				e.log.Warn("failed to send cash guard email", "error", err)
+			}
+		}
 	}
 
 	return nil
