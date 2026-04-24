@@ -90,6 +90,22 @@ func (c *Client) GetOpenOrders() ([]alpaca.Order, error) {
 	return orders, nil
 }
 
+// GetClock returns the current market clock, including whether the market is
+// open and the times of the next open and close.
+func (c *Client) GetClock() (*alpaca.Clock, error) {
+	var clock *alpaca.Clock
+	err := withRetry(c.log, "GetClock", maxRetries, func() error {
+		var e error
+		clock, e = c.ac.GetClock()
+		return e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get clock: %w", err)
+	}
+	c.log.Debug("fetched clock", "is_open", clock.IsOpen, "next_open", clock.NextOpen)
+	return clock, nil
+}
+
 // GetLatestPrice returns the last trade price for a stock symbol.
 func (c *Client) GetLatestPrice(symbol string) (float64, error) {
 	var price float64

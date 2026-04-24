@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/enork/alpaca-trader/internal/broker"
 	"github.com/enork/alpaca-trader/internal/config"
@@ -30,8 +33,16 @@ func main() {
 
 	engine := trading.New(cfg, bc, sel, notifier, log)
 
-	if err := engine.Run(); err != nil {
-		log.Error("trading cycle failed", "error", err)
+	if !cfg.Trading.RunOnStartup && !cfg.Trading.RunOnOpen && cfg.Trading.RunOnCron == "" {
+		log.Warn("no run mode enabled; set run_on_startup, run_on_open, or run_on_cron in config.yaml")
 		os.Exit(1)
 	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	r := &runner{cfg: cfg, engine: engine, bc: bc, log: log}
+	r.start(ctx)
+
+	log.Info("shutting down")
 }
