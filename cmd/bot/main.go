@@ -20,8 +20,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	bc := broker.New(cfg.Alpaca)
-	sel := options.New(bc)
+	bc := broker.New(cfg.Alpaca, log)
+	sel := options.New(bc, log)
 
 	notifier, err := notify.New(cfg.Notify)
 	if err != nil {

@@ -2,6 +2,7 @@ package options
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 	"unicode"
@@ -22,12 +23,13 @@ type Option struct {
 
 // Selector queries option chains and applies strike-selection algorithms.
 type Selector struct {
-	bc *broker.Client
+	bc  *broker.Client
+	log *slog.Logger
 }
 
 // New returns a Selector backed by the given broker client.
-func New(bc *broker.Client) *Selector {
-	return &Selector{bc: bc}
+func New(bc *broker.Client, log *slog.Logger) *Selector {
+	return &Selector{bc: bc, log: log}
 }
 
 // SelectCall returns the best covered-call contract for the given ticker.
@@ -37,6 +39,8 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 	today := civil.DateOf(time.Now())
 	cutoff := addTradingDays(today, maxDTE)
 
+	s.log.Debug("querying call chain", "ticker", ticker, "expiry_gte", today, "expiry_lte", cutoff, "cost_basis", costBasis)
+
 	snapshots, err := s.bc.GetOptionChain(ticker, marketdata.Call, today, cutoff)
 	if err != nil {
 		return nil, err
@@ -44,9 +48,11 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 
 	var best *Option
 	var bestScore float64
+	evaluated, skippedNoQuote, skippedBelowBasis := 0, 0, 0
 
 	for sym, snap := range snapshots {
 		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
+			skippedNoQuote++
 			continue
 		}
 		_, expiry, optType, strike, err := ParseSymbol(sym)
@@ -56,7 +62,9 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 		if optType != "C" {
 			continue
 		}
+		evaluated++
 		if strike < costBasis {
+			skippedBelowBasis++
 			continue
 		}
 		bid := snap.LatestQuote.BidPrice
@@ -73,9 +81,17 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 		}
 	}
 
+	s.log.Debug("call selection complete",
+		"ticker", ticker,
+		"evaluated", evaluated,
+		"skipped_no_quote", skippedNoQuote,
+		"skipped_below_basis", skippedBelowBasis,
+	)
+
 	if best == nil {
 		return nil, fmt.Errorf("no qualifying call found for %s (cost basis %.2f, max_dte %d)", ticker, costBasis, maxDTE)
 	}
+	s.log.Info("selected call", "ticker", ticker, "symbol", best.Symbol, "strike", best.Strike, "expiry", best.Expiry, "bid", best.BidPrice)
 	return best, nil
 }
 
@@ -91,6 +107,8 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 	today := civil.DateOf(time.Now())
 	cutoff := addTradingDays(today, maxDTE)
 
+	s.log.Debug("querying put chain", "ticker", ticker, "price", currentPrice, "expiry_gte", today, "expiry_lte", cutoff)
+
 	snapshots, err := s.bc.GetOptionChain(ticker, marketdata.Put, today, cutoff)
 	if err != nil {
 		return nil, err
@@ -98,9 +116,11 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 
 	var best *Option
 	var bestScore float64
+	evaluated, skippedNoQuote, skippedITM := 0, 0, 0
 
 	for sym, snap := range snapshots {
 		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
+			skippedNoQuote++
 			continue
 		}
 		_, expiry, optType, strike, err := ParseSymbol(sym)
@@ -110,7 +130,9 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 		if optType != "P" {
 			continue
 		}
+		evaluated++
 		if strike >= currentPrice {
+			skippedITM++
 			continue
 		}
 		bid := snap.LatestQuote.BidPrice
@@ -127,9 +149,17 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 		}
 	}
 
+	s.log.Debug("put selection complete",
+		"ticker", ticker,
+		"evaluated", evaluated,
+		"skipped_no_quote", skippedNoQuote,
+		"skipped_itm", skippedITM,
+	)
+
 	if best == nil {
 		return nil, fmt.Errorf("no qualifying put found for %s (price %.2f, max_dte %d)", ticker, currentPrice, maxDTE)
 	}
+	s.log.Info("selected put", "ticker", ticker, "symbol", best.Symbol, "strike", best.Strike, "expiry", best.Expiry, "bid", best.BidPrice)
 	return best, nil
 }
 
