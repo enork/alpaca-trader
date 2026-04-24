@@ -1,15 +1,15 @@
 package main
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/enork/alpaca-trader/internal/config"
+	"github.com/enork/alpaca-trader/internal/logutil"
 	"github.com/enork/alpaca-trader/internal/notify"
 )
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	log := logutil.New(nil)
 
 	cfg, err := config.Load("config.yaml")
 	if err != nil {

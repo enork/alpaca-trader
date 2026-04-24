@@ -4,11 +4,11 @@ package trading_test
 
 import (
 	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/enork/alpaca-trader/internal/broker"
 	"github.com/enork/alpaca-trader/internal/config"
+	"github.com/enork/alpaca-trader/internal/logutil"
 	"github.com/enork/alpaca-trader/internal/options"
 	"github.com/enork/alpaca-trader/internal/trading"
 )
@@ -22,7 +22,7 @@ func TestTradingCycleE2E(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	log := logutil.New(&slog.HandlerOptions{Level: slog.LevelDebug})
 	bc := broker.New(cfg.Alpaca, log)
 
 	// Verify connectivity and log account state.
