@@ -16,9 +16,10 @@ type Config struct {
 }
 
 type AlpacaConfig struct {
-	APIKey    string `yaml:"api_key"`
-	APISecret string `yaml:"api_secret"`
-	BaseURL   string `yaml:"base_url"`
+	APIKey       string `yaml:"api_key"`
+	APISecret    string `yaml:"api_secret"`
+	BaseURL      string `yaml:"base_url"`
+	PaperTrading bool   `yaml:"paper_trading"`
 }
 
 type TradingConfig struct {
@@ -67,6 +68,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("ALPACA_API_SECRET"); v != "" {
 		cfg.Alpaca.APISecret = v
+	}
+	if v := os.Getenv("PAPER_TRADING"); v != "" {
+		cfg.Alpaca.PaperTrading = v == "true" || v == "1"
 	}
 	if v := os.Getenv("GMAIL_USER"); v != "" {
 		cfg.Notify.From = v

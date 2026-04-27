@@ -3,6 +3,7 @@ package options
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"time"
 	"unicode"
@@ -11,6 +12,9 @@ import (
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata"
 	"github.com/enork/alpaca-trader/internal/broker"
 )
+
+// maxScanDays is the calendar-day look-ahead used to discover available expiry dates.
+const maxScanDays = 30
 
 // Option holds the details of a selected option contract.
 type Option struct {
@@ -37,18 +41,24 @@ func New(bc *broker.Client, log *slog.Logger) *Selector {
 // Efficiency metric: bidPrice / (strike - costBasis + 1)
 func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Option, error) {
 	today := civil.DateOf(time.Now())
-	cutoff := addTradingDays(today, maxDTE)
+	scanCutoff := civil.DateOf(time.Now().AddDate(0, 0, maxScanDays))
 
-	s.log.Debug("querying call chain", "ticker", ticker, "expiry_gte", today, "expiry_lte", cutoff, "cost_basis", costBasis)
+	s.log.Debug("querying call chain", "ticker", ticker, "scan_days", maxScanDays, "cost_basis", costBasis)
 
-	snapshots, err := s.bc.GetOptionChain(ticker, marketdata.Call, today, cutoff)
+	snapshots, err := s.bc.GetOptionChain(ticker, marketdata.Call, today, scanCutoff)
 	if err != nil {
 		return nil, err
 	}
 
+	allowed := nearestExpiries(snapshots, maxDTE)
+	if len(allowed) == 0 {
+		return nil, fmt.Errorf("no call expiry dates found for %s in the next %d days", ticker, maxScanDays)
+	}
+	s.log.Info("discovered call expiry dates", "ticker", ticker, "expiries", sortedDates(allowed))
+
 	var best *Option
 	var bestScore float64
-	evaluated, skippedNoQuote, skippedBelowBasis := 0, 0, 0
+	evaluated, skippedNoQuote, skippedBelowBasis, skippedExpiry := 0, 0, 0, 0
 
 	for sym, snap := range snapshots {
 		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
@@ -60,6 +70,10 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 			continue
 		}
 		if optType != "C" {
+			continue
+		}
+		if _, ok := allowed[expiry]; !ok {
+			skippedExpiry++
 			continue
 		}
 		evaluated++
@@ -86,6 +100,7 @@ func (s *Selector) SelectCall(ticker string, costBasis float64, maxDTE int) (*Op
 		"evaluated", evaluated,
 		"skipped_no_quote", skippedNoQuote,
 		"skipped_below_basis", skippedBelowBasis,
+		"skipped_wrong_expiry", skippedExpiry,
 	)
 
 	if best == nil {
@@ -105,18 +120,24 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 	}
 
 	today := civil.DateOf(time.Now())
-	cutoff := addTradingDays(today, maxDTE)
+	scanCutoff := civil.DateOf(time.Now().AddDate(0, 0, maxScanDays))
 
-	s.log.Debug("querying put chain", "ticker", ticker, "price", currentPrice, "expiry_gte", today, "expiry_lte", cutoff)
+	s.log.Debug("querying put chain", "ticker", ticker, "price", currentPrice, "scan_days", maxScanDays)
 
-	snapshots, err := s.bc.GetOptionChain(ticker, marketdata.Put, today, cutoff)
+	snapshots, err := s.bc.GetOptionChain(ticker, marketdata.Put, today, scanCutoff)
 	if err != nil {
 		return nil, err
 	}
 
+	allowed := nearestExpiries(snapshots, maxDTE)
+	if len(allowed) == 0 {
+		return nil, fmt.Errorf("no put expiry dates found for %s in the next %d days", ticker, maxScanDays)
+	}
+	s.log.Info("discovered put expiry dates", "ticker", ticker, "expiries", sortedDates(allowed))
+
 	var best *Option
 	var bestScore float64
-	evaluated, skippedNoQuote, skippedITM := 0, 0, 0
+	evaluated, skippedNoQuote, skippedITM, skippedExpiry := 0, 0, 0, 0
 
 	for sym, snap := range snapshots {
 		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
@@ -128,6 +149,10 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 			continue
 		}
 		if optType != "P" {
+			continue
+		}
+		if _, ok := allowed[expiry]; !ok {
+			skippedExpiry++
 			continue
 		}
 		evaluated++
@@ -154,6 +179,7 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 		"evaluated", evaluated,
 		"skipped_no_quote", skippedNoQuote,
 		"skipped_itm", skippedITM,
+		"skipped_wrong_expiry", skippedExpiry,
 	)
 
 	if best == nil {
@@ -163,20 +189,48 @@ func (s *Selector) SelectPut(ticker string, maxDTE int) (*Option, error) {
 	return best, nil
 }
 
-// addTradingDays advances d by n trading days, skipping Saturday and Sunday.
-func addTradingDays(d civil.Date, n int) civil.Date {
-	t := d.In(time.UTC)
-	added := 0
-	for added < n {
-		t = t.AddDate(0, 0, 1)
-		switch t.Weekday() {
-		case time.Saturday, time.Sunday:
-			// skip
-		default:
-			added++
+// nearestExpiries scans the symbols in snapshots, collects unique expiry dates,
+// sorts them ascending, and returns the first n as a set. Only expiry dates
+// that actually have contracts with a positive bid are included.
+func nearestExpiries(snapshots map[string]marketdata.OptionSnapshot, n int) map[civil.Date]struct{} {
+	seen := make(map[civil.Date]struct{})
+	for sym, snap := range snapshots {
+		if snap.LatestQuote == nil || snap.LatestQuote.BidPrice <= 0 {
+			continue
 		}
+		_, expiry, _, _, err := ParseSymbol(sym)
+		if err != nil {
+			continue
+		}
+		seen[expiry] = struct{}{}
 	}
-	return civil.DateOf(t)
+
+	dates := make([]civil.Date, 0, len(seen))
+	for d := range seen {
+		dates = append(dates, d)
+	}
+	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
+
+	result := make(map[civil.Date]struct{}, n)
+	for i := 0; i < n && i < len(dates); i++ {
+		result[dates[i]] = struct{}{}
+	}
+	return result
+}
+
+// sortedDates returns expiry dates from a set as a sorted slice of strings,
+// used for structured logging.
+func sortedDates(m map[civil.Date]struct{}) []string {
+	dates := make([]civil.Date, 0, len(m))
+	for d := range m {
+		dates = append(dates, d)
+	}
+	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
+	out := make([]string, len(dates))
+	for i, d := range dates {
+		out[i] = d.String()
+	}
+	return out
 }
 
 // ParseSymbol decodes an OCC option symbol (e.g. PLUG250117C00003000) into its components.

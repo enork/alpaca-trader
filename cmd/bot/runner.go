@@ -110,8 +110,12 @@ func (r *runner) runCycle(trigger string) {
 		return
 	}
 	if !clock.IsOpen {
-		r.log.Info("trading cycle skipped: market is closed", "trigger", trigger, "next_open", clock.NextOpen)
-		return
+		if r.cfg.Alpaca.PaperTrading {
+			r.log.Info("paper trading: bypassing market hours check", "trigger", trigger, "next_open", clock.NextOpen)
+		} else {
+			r.log.Info("trading cycle skipped: market is closed", "trigger", trigger, "next_open", clock.NextOpen)
+			return
+		}
 	}
 
 	if err := r.engine.Run(); err != nil {
