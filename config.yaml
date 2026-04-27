@@ -10,14 +10,14 @@ trading:
   run_on_cron: ""
 
 symbols:
-  - ticker: PLUG
+  - ticker: PATH
     enabled: true
   - ticker: IBIT
     enabled: false
   - ticker: USAR
     enabled: false
-  - ticker: PATH
-    enabled: false
+  - ticker: PLUG
+    enabled: true
 
 notify:
   smtp_host: "smtp.gmail.com"

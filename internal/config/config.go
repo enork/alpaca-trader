@@ -39,6 +39,7 @@ type NotifyConfig struct {
 	SMTPPort int    `yaml:"smtp_port"`
 	From     string `yaml:"from"`
 	To       string `yaml:"to"`
+	Enabled  bool   `yaml:"enabled"`
 }
 
 func Load(path string) (*Config, error) {
@@ -71,6 +72,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("PAPER_TRADING"); v != "" {
 		cfg.Alpaca.PaperTrading = v == "true" || v == "1"
+	}
+	if v := os.Getenv("CASHGUARD_NOTIFICATION_ENABLED"); v != "" {
+		cfg.Notify.Enabled = v == "true" || v == "1"
 	}
 	if v := os.Getenv("GMAIL_USER"); v != "" {
 		cfg.Notify.From = v
