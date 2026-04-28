@@ -1,4 +1,6 @@
-.PHONY: run build test test-integration notify-test clean
+.PHONY: run build test test-integration notify-test report clean
+
+REPORT_DAYS ?= 30
 
 -include .env
 export
@@ -17,6 +19,9 @@ test-integration:
 
 notify-test:
 	@go run ./cmd/notify-test/
+
+report:
+	@go run ./cmd/report/ --days=$(REPORT_DAYS)
 
 clean:
 	@rm -rf bin/

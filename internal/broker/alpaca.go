@@ -149,6 +149,61 @@ func (c *Client) PlaceOptionOrder(optionSymbol string, contracts int, limitPrice
 	return order, nil
 }
 
+// GetPortfolioHistory returns portfolio equity and P&L history.
+// The period and timeframe are chosen automatically based on the requested number of days.
+func (c *Client) GetPortfolioHistory(days int) (*alpaca.PortfolioHistory, error) {
+	period, tf := portfolioPeriodFor(days)
+	var hist *alpaca.PortfolioHistory
+	err := withRetry(c.log, "GetPortfolioHistory", maxRetries, func() error {
+		var e error
+		hist, e = c.ac.GetPortfolioHistory(alpaca.GetPortfolioHistoryRequest{
+			Period:    period,
+			TimeFrame: tf,
+		})
+		return e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get portfolio history: %w", err)
+	}
+	c.log.Debug("fetched portfolio history", "period", period, "points", len(hist.Timestamp))
+	return hist, nil
+}
+
+func portfolioPeriodFor(days int) (string, alpaca.TimeFrame) {
+	switch {
+	case days <= 7:
+		return "1W", alpaca.Hour1
+	case days <= 30:
+		return "1M", alpaca.Day1
+	case days <= 90:
+		return "3M", alpaca.Day1
+	case days <= 180:
+		return "6M", alpaca.Day1
+	default:
+		return "1A", alpaca.Day1
+	}
+}
+
+// GetActivitiesRange returns all account activities after the given time,
+// ordered oldest-first, with a large page size suitable for reporting.
+func (c *Client) GetActivitiesRange(after time.Time) ([]alpaca.AccountActivity, error) {
+	var acts []alpaca.AccountActivity
+	err := withRetry(c.log, "GetActivitiesRange", maxRetries, func() error {
+		var e error
+		acts, e = c.ac.GetAccountActivities(alpaca.GetAccountActivitiesRequest{
+			After:     after,
+			Direction: "asc",
+			PageSize:  1000,
+		})
+		return e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get activities range: %w", err)
+	}
+	c.log.Debug("fetched activities for report", "count", len(acts), "after", after)
+	return acts, nil
+}
+
 // PlaceBuyToClose submits a buy-to-close day limit order for an option position.
 func (c *Client) PlaceBuyToClose(optionSymbol string, contracts int, limitPrice float64) (*alpaca.Order, error) {
 	qty := decimal.NewFromInt(int64(contracts))
