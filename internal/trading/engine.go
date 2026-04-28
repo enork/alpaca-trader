@@ -30,11 +30,12 @@ func New(cfg *config.Config, bc *broker.Client, sel *options.Selector, notifier 
 
 // Run executes one full trading cycle.
 //
-// Symbols are evaluated in a round-robin loop. Each round visits every ticker
-// still in the pending pool and removes it when either:
+// Before scanning for new orders, any short option positions that have reached
+// the 50% profit target are closed (buy-to-close). Symbols are then evaluated
+// in a round-robin loop. Each round visits every ticker still in the pending
+// pool and removes it when either:
 //
-//	A) An open option order or position already exists for that ticker
-//	   (including orders placed earlier in this same cycle).
+//	A) The put/call count has reached the per-symbol contracts target.
 //	B) The cash guard determines there is not enough buying power to cover
 //	   an additional put obligation.
 //
@@ -63,6 +64,9 @@ func (e *Engine) Run() error {
 		e.log.Info("open order", "symbol", order.Symbol, "qty", order.Qty, "side", order.Side, "type", order.Type, "status", order.Status)
 	}
 
+	// Check existing short option positions for early-close opportunities
+	e.checkEarlyClose(positions, orders)
+
 	pending := e.cfg.EnabledSymbols()
 
 	var cycleOrders []cycleOrder
@@ -75,6 +79,7 @@ func (e *Engine) Run() error {
 
 		for _, sym := range pending {
 			ticker := sym.Ticker
+			params := e.selectionParams(sym)
 
 			// Determine how many puts/calls already exist for this ticker
 			// (positions, pending orders, and orders placed earlier this cycle).
@@ -92,12 +97,39 @@ func (e *Engine) Run() error {
 					continue
 				}
 				costBasis, _ := stockPos.AvgEntryPrice.Float64()
-				co, err := e.placeCalls(ticker, uncoveredLots, costBasis)
-				if err != nil {
-					e.log.Warn("covered call skipped", "ticker", ticker, "error", err)
+
+				if sym.Ladder {
+					opts, lerr := e.sel.SelectCallLadder(ticker, uncoveredLots, costBasis, params)
+					if lerr != nil {
+						e.log.Warn("covered call ladder skipped", "ticker", ticker, "error", lerr)
+					} else {
+						for _, opt := range opts {
+							order, oerr := e.bc.PlaceOptionOrder(opt.Symbol, 1, opt.LimitPrice)
+							if oerr != nil {
+								e.log.Warn("ladder call order failed", "ticker", ticker, "expiry", opt.Expiry, "error", oerr)
+								break
+							}
+							e.log.Info("ladder call order placed",
+								"ticker", ticker, "order_id", order.ID,
+								"option_symbol", opt.Symbol, "strike", opt.Strike,
+								"expiry", opt.Expiry, "limit", opt.LimitPrice, "dte", opt.DTE,
+							)
+							cycleOrders = append(cycleOrders, cycleOrder{
+								ticker: ticker, optType: "call", symbol: opt.Symbol,
+								strike: opt.Strike, expiry: opt.Expiry.String(),
+								bidPrice: opt.LimitPrice, contracts: 1, orderID: order.ID,
+							})
+							roundPlaced++
+						}
+					}
 				} else {
-					cycleOrders = append(cycleOrders, *co)
-					roundPlaced++
+					co, cerr := e.placeCalls(ticker, uncoveredLots, costBasis, params)
+					if cerr != nil {
+						e.log.Warn("covered call skipped", "ticker", ticker, "error", cerr)
+					} else {
+						cycleOrders = append(cycleOrders, *co)
+						roundPlaced++
+					}
 				}
 				continue
 			}
@@ -111,7 +143,50 @@ func (e *Engine) Run() error {
 				continue
 			}
 
-			co, skip, err := e.placePut(ticker, putsToAdd, acct, positions, orders, cycleOrders)
+			if sym.Ladder {
+				opts, lerr := e.sel.SelectPutLadder(ticker, putsToAdd, params)
+				if lerr != nil {
+					e.log.Warn("put ladder skipped", "ticker", ticker, "error", lerr)
+					continue
+				}
+				anyPlaced := false
+				for _, opt := range opts {
+					// Per-contract cash guard check for each ladder leg.
+					obligation := opt.Strike * 100
+					exposure := existingPutExposure(positions, orders, cycleOrders)
+					cash, _ := acct.Cash.Float64()
+					effectiveCash := cash * (1 - e.cfg.Trading.CashReservePct)
+					if effectiveCash-exposure < obligation {
+						skips = append(skips, cashGuardSkip{Ticker: ticker, Strike: opt.Strike, Obligation: obligation})
+						e.log.Info("ladder put blocked by cash guard",
+							"ticker", ticker, "expiry", opt.Expiry, "strike", opt.Strike)
+						break
+					}
+					order, oerr := e.bc.PlaceOptionOrder(opt.Symbol, 1, opt.LimitPrice)
+					if oerr != nil {
+						e.log.Warn("ladder put order failed", "ticker", ticker, "expiry", opt.Expiry, "error", oerr)
+						break
+					}
+					e.log.Info("ladder put order placed",
+						"ticker", ticker, "order_id", order.ID,
+						"option_symbol", opt.Symbol, "strike", opt.Strike,
+						"expiry", opt.Expiry, "limit", opt.LimitPrice, "dte", opt.DTE,
+					)
+					cycleOrders = append(cycleOrders, cycleOrder{
+						ticker: ticker, optType: "put", symbol: opt.Symbol,
+						strike: opt.Strike, expiry: opt.Expiry.String(),
+						bidPrice: opt.LimitPrice, contracts: 1, orderID: order.ID,
+					})
+					roundPlaced++
+					anyPlaced = true
+				}
+				if anyPlaced {
+					nextRound = append(nextRound, sym)
+				}
+				continue
+			}
+
+			co, skip, err := e.placePut(ticker, putsToAdd, params, acct, positions, orders, cycleOrders)
 			if skip != nil {
 				skips = append(skips, *skip)
 				e.log.Info("removing from pool: insufficient cash (condition B)", "ticker", ticker)
@@ -343,6 +418,86 @@ func countExistingContracts(
 		}
 	}
 	return count
+}
+
+// selectionParams builds a SelectionParams from the trading-level defaults merged
+// with any symbol-level overrides (bid_ask_range, min_delta, max_delta).
+func (e *Engine) selectionParams(sym config.Symbol) options.SelectionParams {
+	bidAskRange := e.cfg.Trading.BidAskRange
+	if sym.BidAskRange != nil {
+		bidAskRange = *sym.BidAskRange
+	}
+	minDelta := e.cfg.Trading.MinDelta
+	if sym.MinDelta != nil {
+		minDelta = *sym.MinDelta
+	}
+	maxDelta := e.cfg.Trading.MaxDelta
+	if sym.MaxDelta != nil {
+		maxDelta = *sym.MaxDelta
+	}
+	return options.SelectionParams{
+		MaxDTE:          e.cfg.Trading.MaxDTE,
+		MinPremiumPct:   e.cfg.Trading.MinPremiumPct,
+		MinPremiumPrice: e.cfg.Trading.MinPremiumPrice,
+		MinDelta:        minDelta,
+		MaxDelta:        maxDelta,
+		BidAskRange:     bidAskRange,
+	}
+}
+
+// checkEarlyClose scans open short option positions and places a buy-to-close
+// limit order for any that have reached the 50% profit target. Positions with
+// an existing BTC order are skipped to avoid duplicates.
+func (e *Engine) checkEarlyClose(positions []alpaca.Position, orders []alpaca.Order) {
+	const profitTarget = 0.50
+
+	// Build a set of symbols that already have a pending BTC order.
+	pendingBTC := make(map[string]bool)
+	for _, o := range orders {
+		if o.PositionIntent == alpaca.BuyToClose {
+			pendingBTC[o.Symbol] = true
+		}
+	}
+
+	for _, p := range positions {
+		// Only consider option positions (ParseSymbol succeeds).
+		if _, _, _, _, err := options.ParseSymbol(p.Symbol); err != nil {
+			continue
+		}
+		if pendingBTC[p.Symbol] {
+			continue
+		}
+		if p.CurrentPrice == nil {
+			continue
+		}
+
+		openingCredit := math.Abs(p.AvgEntryPrice.InexactFloat64())
+		currentMark := math.Abs(p.CurrentPrice.InexactFloat64())
+		if openingCredit <= 0 {
+			continue
+		}
+
+		profitPct := 1 - (currentMark / openingCredit)
+		if profitPct < profitTarget {
+			continue
+		}
+
+		qty, _ := p.Qty.Float64()
+		contracts := int(math.Round(math.Abs(qty)))
+		if contracts <= 0 {
+			continue
+		}
+
+		e.log.Info("early close target reached",
+			"symbol", p.Symbol,
+			"opening_credit", openingCredit,
+			"current_mark", currentMark,
+			"profit_pct", profitPct,
+		)
+		if _, err := e.bc.PlaceBuyToClose(p.Symbol, contracts, currentMark); err != nil {
+			e.log.Warn("buy-to-close order failed", "symbol", p.Symbol, "error", err)
+		}
+	}
 }
 
 // findStockPosition returns the equity position for ticker, or nil if none.

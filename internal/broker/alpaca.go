@@ -149,6 +149,31 @@ func (c *Client) PlaceOptionOrder(optionSymbol string, contracts int, limitPrice
 	return order, nil
 }
 
+// PlaceBuyToClose submits a buy-to-close day limit order for an option position.
+func (c *Client) PlaceBuyToClose(optionSymbol string, contracts int, limitPrice float64) (*alpaca.Order, error) {
+	qty := decimal.NewFromInt(int64(contracts))
+	price := decimal.NewFromFloat(limitPrice)
+	var order *alpaca.Order
+	err := withRetry(c.log, "PlaceBuyToClose:"+optionSymbol, maxRetries, func() error {
+		var e error
+		order, e = c.ac.PlaceOrder(alpaca.PlaceOrderRequest{
+			Symbol:         optionSymbol,
+			Qty:            &qty,
+			Side:           alpaca.Buy,
+			Type:           alpaca.Limit,
+			TimeInForce:    alpaca.Day,
+			LimitPrice:     &price,
+			PositionIntent: alpaca.BuyToClose,
+		})
+		return e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("place buy-to-close %s: %w", optionSymbol, err)
+	}
+	c.log.Debug("buy-to-close order submitted", "symbol", optionSymbol, "contracts", contracts, "limit", limitPrice, "order_id", order.ID)
+	return order, nil
+}
+
 // GetRecentActivities returns account activities (fills, dividends, etc.) after
 // the given time, ordered newest-first.
 func (c *Client) GetRecentActivities(after time.Time) ([]alpaca.AccountActivity, error) {

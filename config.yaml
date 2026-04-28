@@ -8,6 +8,12 @@ trading:
   run_on_startup: true
   run_on_open: true
   run_on_cron: ""
+  cash_reserve_pct: 0.0    # fraction of cash to keep undeployed (e.g. 0.10 = reserve 10%)
+  bid_ask_range: 0.5        # limit price: 0.0 = bid, 1.0 = ask, 0.5 = midpoint
+  min_premium_pct: 0.0      # min annualised return as decimal (e.g. 0.15 = 15%); 0 = disabled
+  min_premium_price: 0.0    # min flat bid per share (e.g. 0.10); ignored when min_premium_pct > 0; 0 = disabled
+  min_delta: 0.0            # absolute delta floor for strike selection (e.g. 0.20); 0 = disabled
+  max_delta: 0.0            # absolute delta ceiling for strike selection (e.g. 0.35); 0 = disabled
 
 symbols:
   - ticker: PLUG
