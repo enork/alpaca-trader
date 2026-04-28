@@ -3,11 +3,11 @@
 -include .env
 export
 
-run:
+run: build
 	@go run ./cmd/bot/
 
 build:
-	@go build -o bin/bot ./cmd/bot/
+	go build -o bin/bot ./cmd/bot/
 
 test:
 	@go test ./...
