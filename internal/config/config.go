@@ -23,23 +23,24 @@ type AlpacaConfig struct {
 }
 
 type TradingConfig struct {
+	ScanDays        int     `yaml:"scan_days"` // calendar-day window to search for expiry dates
 	MaxDTE          int     `yaml:"max_dte"`
 	RunOnStartup    bool    `yaml:"run_on_startup"`
 	RunOnOpen       bool    `yaml:"run_on_open"`
 	RunOnCron       string  `yaml:"run_on_cron"`
-	CashReservePct  float64 `yaml:"cash_reserve_pct"`   // fraction of cash to keep undeployed (0.0 = use all)
-	BidAskRange     float64 `yaml:"bid_ask_range"`      // 0.0 = bid, 1.0 = ask, 0.5 = midpoint
-	MinPremiumPct   float64 `yaml:"min_premium_pct"`    // minimum annualised return as decimal (0 = disabled; precedence over MinPremiumPrice)
-	MinPremiumPrice float64 `yaml:"min_premium_price"`  // minimum flat bid price per share (0 = disabled)
-	MinDelta        float64 `yaml:"min_delta"`           // absolute delta floor for strike selection (0 = disabled)
-	MaxDelta        float64 `yaml:"max_delta"`           // absolute delta ceiling for strike selection (0 = disabled)
+	CashReservePct  float64 `yaml:"cash_reserve_pct"`  // fraction of cash to keep undeployed (0.0 = use all)
+	BidAskRange     float64 `yaml:"bid_ask_range"`     // 0.0 = bid, 1.0 = ask, 0.5 = midpoint
+	MinPremiumPct   float64 `yaml:"min_premium_pct"`   // minimum annualised return as decimal (0 = disabled; precedence over MinPremiumPrice)
+	MinPremiumPrice float64 `yaml:"min_premium_price"` // minimum flat bid price per share (0 = disabled)
+	MinDelta        float64 `yaml:"min_delta"`         // absolute delta floor for strike selection (0 = disabled)
+	MaxDelta        float64 `yaml:"max_delta"`         // absolute delta ceiling for strike selection (0 = disabled)
 }
 
 type Symbol struct {
 	Ticker      string   `yaml:"ticker"`
 	Enabled     bool     `yaml:"enabled"`
 	Contracts   int      `yaml:"contracts"`
-	Ladder      bool     `yaml:"ladder"`       // spread contracts across multiple expiry dates
+	Ladder      bool     `yaml:"ladder"`        // spread contracts across multiple expiry dates
 	BidAskRange *float64 `yaml:"bid_ask_range"` // overrides trading.bid_ask_range when set
 	MinDelta    *float64 `yaml:"min_delta"`     // overrides trading.min_delta when set
 	MaxDelta    *float64 `yaml:"max_delta"`     // overrides trading.max_delta when set

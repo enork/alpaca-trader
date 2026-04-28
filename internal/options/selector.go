@@ -19,6 +19,7 @@ const maxScanDays = 30
 
 // SelectionParams controls how options are filtered, scored, and priced.
 type SelectionParams struct {
+	ScanDays int // calendar-day window to search for expiry dates (e.g. 30)
 	// MaxDTE is the maximum number of distinct expiry dates to consider (e.g. 3 = nearest 3 Fridays).
 	MaxDTE int
 	// MinPremiumPct is the minimum annualised return as a decimal (e.g. 0.15 = 15%).
@@ -199,13 +200,13 @@ func (s *Selector) SelectCallLadder(ticker string, maxCount int, costBasis float
 // ── Internal selection helpers ────────────────────────────────────────────────
 
 type selectionStats struct {
-	evaluated        int
-	skippedNoQuote   int
-	skippedExpiry    int
-	skippedITM       int
+	evaluated         int
+	skippedNoQuote    int
+	skippedExpiry     int
+	skippedITM        int
 	skippedBelowBasis int
-	skippedPremium   int
-	skippedDelta     int
+	skippedPremium    int
+	skippedDelta      int
 }
 
 // selectBestPutInSet finds the highest-scoring OTM put across the allowed expiry set.

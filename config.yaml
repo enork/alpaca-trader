@@ -4,7 +4,8 @@ alpaca:
   base_url: "https://paper-api.alpaca.markets"
 
 trading:
-  max_dte: 1
+  scan_days: 30         # calendar-day window to search for expiry dates (e.g. 30)
+  max_dte: 0 # maximum number of distinct expiry dates to consider (e.g. 3 = nearest 3 days ticker has options)
   run_on_startup: true
   run_on_open: true
   run_on_cron: ""
@@ -17,10 +18,10 @@ trading:
 
 symbols:
   - ticker: PLUG
-    enabled: true
-    contracts: 3
-  - ticker: PATH
     enabled: false
+    contracts: 2
+  - ticker: PATH
+    enabled: true
     contracts: 1
   - ticker: IBIT
     enabled: false

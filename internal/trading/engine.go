@@ -436,6 +436,7 @@ func (e *Engine) selectionParams(sym config.Symbol) options.SelectionParams {
 		maxDelta = *sym.MaxDelta
 	}
 	return options.SelectionParams{
+		ScanDays:        e.cfg.Trading.ScanDays,
 		MaxDTE:          e.cfg.Trading.MaxDTE,
 		MinPremiumPct:   e.cfg.Trading.MinPremiumPct,
 		MinPremiumPrice: e.cfg.Trading.MinPremiumPrice,
