@@ -35,11 +35,12 @@ type Symbol struct {
 }
 
 type NotifyConfig struct {
-	SMTPHost string `yaml:"smtp_host"`
-	SMTPPort int    `yaml:"smtp_port"`
-	From     string `yaml:"from"`
-	To       string `yaml:"to"`
-	Enabled  bool   `yaml:"enabled"`
+	SMTPHost          string `yaml:"smtp_host"`
+	SMTPPort          int    `yaml:"smtp_port"`
+	From              string `yaml:"from"`
+	To                string `yaml:"to"`
+	Enabled           bool   `yaml:"enabled"`
+	RunSummaryEnabled bool   `yaml:"run_summary_enabled"`
 }
 
 func Load(path string) (*Config, error) {
@@ -75,6 +76,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("CASHGUARD_NOTIFICATION_ENABLED"); v != "" {
 		cfg.Notify.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("RUN_SUMMARY_ENABLED"); v != "" {
+		cfg.Notify.RunSummaryEnabled = v == "true" || v == "1"
 	}
 	if v := os.Getenv("GMAIL_USER"); v != "" {
 		cfg.Notify.From = v

@@ -63,6 +63,47 @@ func buildCashGuardBody(a CashGuardAlert) string {
 	return b.String()
 }
 
+func (n *Notifier) sendHTML(subject, html string) error {
+	addr := fmt.Sprintf("%s:%d", n.cfg.SMTPHost, n.cfg.SMTPPort)
+	auth := smtp.PlainAuth("", n.cfg.From, n.password, n.cfg.SMTPHost)
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n%s",
+		n.cfg.From, n.cfg.To, subject, html,
+	)
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("smtp dial: %w", err)
+	}
+	client, err := smtp.NewClient(conn, n.cfg.SMTPHost)
+	if err != nil {
+		return fmt.Errorf("smtp client: %w", err)
+	}
+	defer client.Close()
+	if err := client.StartTLS(&tls.Config{ServerName: n.cfg.SMTPHost}); err != nil {
+		return fmt.Errorf("smtp starttls: %w", err)
+	}
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("smtp auth: %w", err)
+	}
+	if err := client.Mail(n.cfg.From); err != nil {
+		return fmt.Errorf("smtp mail from: %w", err)
+	}
+	if err := client.Rcpt(n.cfg.To); err != nil {
+		return fmt.Errorf("smtp rcpt: %w", err)
+	}
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("smtp data: %w", err)
+	}
+	if _, err := fmt.Fprint(w, msg); err != nil {
+		return fmt.Errorf("smtp write: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("smtp close data: %w", err)
+	}
+	return client.Quit()
+}
+
 func (n *Notifier) send(subject, body string) error {
 	addr := fmt.Sprintf("%s:%d", n.cfg.SMTPHost, n.cfg.SMTPPort)
 	auth := smtp.PlainAuth("", n.cfg.From, n.password, n.cfg.SMTPHost)

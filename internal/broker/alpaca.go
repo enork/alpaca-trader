@@ -149,6 +149,26 @@ func (c *Client) PlaceOptionOrder(optionSymbol string, contracts int, limitPrice
 	return order, nil
 }
 
+// GetRecentActivities returns account activities (fills, dividends, etc.) after
+// the given time, ordered newest-first.
+func (c *Client) GetRecentActivities(after time.Time) ([]alpaca.AccountActivity, error) {
+	var acts []alpaca.AccountActivity
+	err := withRetry(c.log, "GetRecentActivities", maxRetries, func() error {
+		var e error
+		acts, e = c.ac.GetAccountActivities(alpaca.GetAccountActivitiesRequest{
+			After:     after,
+			Direction: "desc",
+			PageSize:  100,
+		})
+		return e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get account activities: %w", err)
+	}
+	c.log.Debug("fetched recent activities", "count", len(acts), "after", after)
+	return acts, nil
+}
+
 // GetOptionChain returns snapshots (including bid/ask quotes) for all active option
 // contracts on the underlying symbol within the given expiry window and type filter.
 func (c *Client) GetOptionChain(
