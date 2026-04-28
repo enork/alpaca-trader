@@ -30,8 +30,9 @@ type TradingConfig struct {
 }
 
 type Symbol struct {
-	Ticker  string `yaml:"ticker"`
-	Enabled bool   `yaml:"enabled"`
+	Ticker    string `yaml:"ticker"`
+	Enabled   bool   `yaml:"enabled"`
+	Contracts int    `yaml:"contracts"`
 }
 
 type NotifyConfig struct {
@@ -56,6 +57,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyEnvOverrides(&cfg)
+	applyDefaults(&cfg)
 
 	if err := validate(&cfg); err != nil {
 		return nil, err
@@ -87,6 +89,14 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("SMTP_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Notify.SMTPPort = p
+		}
+	}
+}
+
+func applyDefaults(cfg *Config) {
+	for i := range cfg.Symbols {
+		if cfg.Symbols[i].Contracts <= 0 {
+			cfg.Symbols[i].Contracts = 1
 		}
 	}
 }

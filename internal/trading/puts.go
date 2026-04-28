@@ -30,23 +30,16 @@ type cashGuardSkip struct {
 	Obligation float64
 }
 
-// placedThisCycle returns true if an order for ticker was already placed this cycle.
-func placedThisCycle(ticker string, cycle []cycleOrder) bool {
-	for _, o := range cycle {
-		if o.ticker == ticker {
-			return true
-		}
-	}
-	return false
-}
-
-// placePut selects and places a single cash-secured put for ticker.
-// cycle contains orders already submitted this cycle so the cash guard
-// accounts for obligations not yet visible in the snapshot.
+// placePut selects and places up to `requested` cash-secured puts for ticker.
+// The actual number placed is min(requested, maxAffordable) where maxAffordable
+// is derived from available cash minus existing put exposure.
+// cycle contains orders already submitted this cycle so the cash guard accounts
+// for obligations not yet visible in the broker snapshot.
 // Returns (*cycleOrder, nil, nil) on success; (nil, skip, nil) when the cash
-// guard fires; (nil, nil, err) for any other failure.
+// guard fires (zero contracts affordable); (nil, nil, err) for any other failure.
 func (e *Engine) placePut(
 	ticker string,
+	requested int,
 	acct *alpaca.Account,
 	positions []alpaca.Position,
 	orders []alpaca.Order,
@@ -57,22 +50,34 @@ func (e *Engine) placePut(
 		return nil, nil, err
 	}
 
-	obligation := opt.Strike * 100
+	obligationPerContract := opt.Strike * 100
 	exposure := existingPutExposure(positions, orders, cycle)
 	cash, _ := acct.Cash.Float64()
+	available := cash - exposure
 
-	if cash < exposure+obligation {
+	maxAffordable := int(available / obligationPerContract)
+	if maxAffordable <= 0 {
 		e.log.Warn("cash guard blocked put",
 			"ticker", ticker,
 			"strike", opt.Strike,
-			"obligation", obligation,
+			"obligation_per_contract", obligationPerContract,
 			"existing_exposure", exposure,
 			"cash", cash,
 		)
-		return nil, &cashGuardSkip{Ticker: ticker, Strike: opt.Strike, Obligation: obligation}, nil
+		return nil, &cashGuardSkip{Ticker: ticker, Strike: opt.Strike, Obligation: obligationPerContract}, nil
 	}
 
-	order, err := e.bc.PlaceOptionOrder(opt.Symbol, 1, opt.BidPrice)
+	contracts := requested
+	if maxAffordable < contracts {
+		e.log.Info("cash guard capped contracts",
+			"ticker", ticker,
+			"requested", requested,
+			"affordable", maxAffordable,
+		)
+		contracts = maxAffordable
+	}
+
+	order, err := e.bc.PlaceOptionOrder(opt.Symbol, contracts, opt.BidPrice)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -84,6 +89,8 @@ func (e *Engine) placePut(
 		"strike", opt.Strike,
 		"expiry", opt.Expiry,
 		"bid", opt.BidPrice,
+		"contracts", contracts,
+		"requested", requested,
 	)
 
 	return &cycleOrder{
@@ -93,7 +100,7 @@ func (e *Engine) placePut(
 		strike:    opt.Strike,
 		expiry:    opt.Expiry.String(),
 		bidPrice:  opt.BidPrice,
-		contracts: 1,
+		contracts: contracts,
 		orderID:   order.ID,
 	}, nil, nil
 }

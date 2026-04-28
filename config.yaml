@@ -4,20 +4,22 @@ alpaca:
   base_url: "https://paper-api.alpaca.markets"
 
 trading:
-  max_dte: 2
+  max_dte: 1
   run_on_startup: true
-  run_on_open: false
+  run_on_open: true
   run_on_cron: ""
 
 symbols:
-  - ticker: PATH
+  - ticker: PLUG
     enabled: true
+    contracts: 3
+  - ticker: PATH
+    enabled: false
+    contracts: 1
   - ticker: IBIT
     enabled: false
   - ticker: USAR
     enabled: false
-  - ticker: PLUG
-    enabled: true
 
 notify:
   smtp_host: "smtp.gmail.com"

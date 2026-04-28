@@ -76,18 +76,23 @@ func (e *Engine) Run() error {
 		for _, sym := range pending {
 			ticker := sym.Ticker
 
-			// Condition A — open activity from a prior cycle or this one.
-			if hasOpenOptionActivity(ticker, positions, orders) || placedThisCycle(ticker, cycleOrders) {
-				e.log.Info("removing from pool: open option activity", "ticker", ticker)
-				activitySkips = append(activitySkips, ticker)
-				continue
-			}
+			// Determine how many puts/calls already exist for this ticker
+			// (positions, pending orders, and orders placed earlier this cycle).
+			existingPuts := countExistingContracts(ticker, "P", "put", positions, orders, cycleOrders)
+			existingCalls := countExistingContracts(ticker, "C", "call", positions, orders, cycleOrders)
 
+			// ── Covered-call path ──────────────────────────────────────────────
 			stockPos := findStockPosition(ticker, positions)
 			if stockPos != nil && stockPos.Qty.GreaterThanOrEqual(decimal.NewFromInt(100)) {
-				contracts := int(stockPos.Qty.Div(decimal.NewFromInt(100)).IntPart())
+				totalLots := int(stockPos.Qty.Div(decimal.NewFromInt(100)).IntPart())
+				uncoveredLots := totalLots - existingCalls
+				if uncoveredLots <= 0 {
+					e.log.Info("removing from pool: all lots already covered", "ticker", ticker, "lots", totalLots)
+					activitySkips = append(activitySkips, ticker)
+					continue
+				}
 				costBasis, _ := stockPos.AvgEntryPrice.Float64()
-				co, err := e.placeCalls(ticker, contracts, costBasis)
+				co, err := e.placeCalls(ticker, uncoveredLots, costBasis)
 				if err != nil {
 					e.log.Warn("covered call skipped", "ticker", ticker, "error", err)
 				} else {
@@ -97,7 +102,16 @@ func (e *Engine) Run() error {
 				continue
 			}
 
-			co, skip, err := e.placePut(ticker, acct, positions, orders, cycleOrders)
+			// ── Put path ───────────────────────────────────────────────────────
+			putsToAdd := sym.Contracts - existingPuts
+			if putsToAdd <= 0 {
+				e.log.Info("removing from pool: puts at target",
+					"ticker", ticker, "existing", existingPuts, "target", sym.Contracts)
+				activitySkips = append(activitySkips, ticker)
+				continue
+			}
+
+			co, skip, err := e.placePut(ticker, putsToAdd, acct, positions, orders, cycleOrders)
 			if skip != nil {
 				skips = append(skips, *skip)
 				e.log.Info("removing from pool: insufficient cash (condition B)", "ticker", ticker)
@@ -110,6 +124,8 @@ func (e *Engine) Run() error {
 
 			cycleOrders = append(cycleOrders, *co)
 			roundPlaced++
+			// Stay in pool: next round the updated count may still be below target
+			// (e.g. cash guard capped this placement below requested).
 			nextRound = append(nextRound, sym)
 		}
 
@@ -289,19 +305,44 @@ func (e *Engine) sendRunSummary(
 	return e.notifier.SendRunSummary(summary)
 }
 
-// hasOpenOptionActivity returns true if any open option position or order exists for ticker.
-func hasOpenOptionActivity(ticker string, positions []alpaca.Position, orders []alpaca.Order) bool {
+// countExistingContracts returns the total number of contracts of the given OCC
+// type ("P" or "C") already open for ticker, including live positions, pending
+// sell-to-open orders, and orders placed earlier in the current cycle.
+// cycleType is the matching optType string used in cycleOrder ("put" or "call").
+func countExistingContracts(
+	ticker, occType, cycleType string,
+	positions []alpaca.Position,
+	orders []alpaca.Order,
+	cycle []cycleOrder,
+) int {
+	count := 0
 	for _, p := range positions {
-		if root, _, _, _, err := options.ParseSymbol(p.Symbol); err == nil && root == ticker {
-			return true
+		root, _, ot, _, err := options.ParseSymbol(p.Symbol)
+		if err != nil || root != ticker || ot != occType {
+			continue
 		}
+		qty, _ := p.Qty.Float64()
+		count += int(math.Round(math.Abs(qty)))
 	}
 	for _, o := range orders {
-		if root, _, _, _, err := options.ParseSymbol(o.Symbol); err == nil && root == ticker {
-			return true
+		if o.PositionIntent != alpaca.SellToOpen {
+			continue
+		}
+		root, _, ot, _, err := options.ParseSymbol(o.Symbol)
+		if err != nil || root != ticker || ot != occType {
+			continue
+		}
+		if o.Qty != nil {
+			qty, _ := o.Qty.Float64()
+			count += int(math.Round(math.Abs(qty)))
 		}
 	}
-	return false
+	for _, co := range cycle {
+		if co.ticker == ticker && co.optType == cycleType {
+			count += co.contracts
+		}
+	}
+	return count
 }
 
 // findStockPosition returns the equity position for ticker, or nil if none.
