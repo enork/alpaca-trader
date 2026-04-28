@@ -425,7 +425,7 @@ func nearestExpiriesSorted(snapshots map[string]marketdata.OptionSnapshot, n int
 		dates = append(dates, d)
 	}
 	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
-	if n < len(dates) {
+	if n < len(dates) && n > 0 {
 		return dates[:n]
 	}
 	return dates

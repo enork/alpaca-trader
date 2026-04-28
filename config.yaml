@@ -6,7 +6,7 @@ alpaca:
 trading:
   scan_days: 30         # calendar-day window to search for expiry dates (e.g. 30)
   max_dte: 0 # maximum number of distinct expiry dates to consider (e.g. 3 = nearest 3 days ticker has options)
-  run_on_startup: true
+  run_on_startup: false
   run_on_open: true
   run_on_cron: ""
   cash_reserve_pct: 0.0    # fraction of cash to keep undeployed (e.g. 0.10 = reserve 10%)

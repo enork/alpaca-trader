@@ -126,7 +126,7 @@ func validate(cfg *Config) error {
 	if cfg.Alpaca.BaseURL == "" {
 		return fmt.Errorf("alpaca.base_url is required")
 	}
-	if cfg.Trading.MaxDTE <= 0 {
+	if cfg.Trading.MaxDTE < 0 {
 		return fmt.Errorf("trading.max_dte must be > 0")
 	}
 	if cfg.Notify.To == "" {
